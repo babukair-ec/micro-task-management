@@ -63,6 +63,7 @@ class TaskService {
     requestedEmployeeId = null,
     projectId = null,
     problemId = null,
+    creatorEmployeeId: explicitCreatorId = null,
   }, creatorEmployeeId) {
     if (!title || !title.trim()) {
       throw new Error('Task title is required');
@@ -76,6 +77,57 @@ class TaskService {
     const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
     if (!validPriorities.includes(priority)) {
       priority = 'MEDIUM';
+    }
+
+    // Resolve creatorEmployeeId to Employee outer_id
+    let finalCreatorId = explicitCreatorId || creatorEmployeeId;
+    if (finalCreatorId) {
+      let emp = await prisma.employeeCache.findFirst({
+        where: {
+          OR: [
+            { outer_id: String(finalCreatorId) },
+            { username: String(finalCreatorId) }
+          ]
+        }
+      });
+      if (!emp) {
+        try {
+          const empUrl = process.env.EMPLOYEE_SERVICE_URL || 'http://localhost:8002';
+          const res = await fetch(`${empUrl}/api/employees/?search=${encodeURIComponent(finalCreatorId)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const results = Array.isArray(data) ? data : (data.results || []);
+            const matched = results.find(e => e.outer_id === String(finalCreatorId) || e.user_id === String(finalCreatorId) || e.username === String(finalCreatorId));
+            if (matched && matched.outer_id) {
+              emp = await prisma.employeeCache.upsert({
+                where: { outer_id: matched.outer_id },
+                create: {
+                  outer_id: matched.outer_id,
+                  username: matched.username,
+                  full_name: matched.full_name || matched.username,
+                  email: matched.email || '',
+                  job_title: matched.job_title || '',
+                  employee_type: matched.employee_type || 'EMPLOYEE',
+                  is_active: matched.is_active !== false,
+                },
+                update: {
+                  username: matched.username,
+                  full_name: matched.full_name || matched.username,
+                  email: matched.email || '',
+                  job_title: matched.job_title || '',
+                  employee_type: matched.employee_type || 'EMPLOYEE',
+                  is_active: matched.is_active !== false,
+                }
+              });
+            }
+          }
+        } catch (e) {
+          // fallback
+        }
+      }
+      if (emp) {
+        finalCreatorId = emp.outer_id;
+      }
     }
 
     // Validate Project if provided
@@ -95,7 +147,7 @@ class TaskService {
 
     if (assignmentMode === 'SELF') {
       initialStatus = 'ASSIGNED';
-      currentOwnerId = String(creatorEmployeeId);
+      currentOwnerId = String(finalCreatorId);
     } else if (assignmentMode === 'DIRECT') {
       if (!directAssigneeId) {
         throw new Error('Direct assignment requires a specified assignee');
@@ -119,7 +171,7 @@ class TaskService {
         data: {
           title: title.trim(),
           description: description || '',
-          creator_id: String(creatorEmployeeId),
+          creator_id: String(finalCreatorId),
           current_owner_id: currentOwnerId,
           project_id: verifiedProjectId,
           problem_id: problemId ? String(problemId) : null,
@@ -159,7 +211,7 @@ class TaskService {
         await tx.taskRequest.create({
           data: {
             task_id: task.id,
-            requester_id: String(creatorEmployeeId),
+            requester_id: String(finalCreatorId),
             requested_employee_id: String(requestedEmployeeId),
             status: 'PENDING',
           }
@@ -783,8 +835,14 @@ class TaskService {
     const where = {};
 
     if (status) where.status = status;
-    if (ownerId) where.current_owner_id = String(ownerId);
-    if (creatorId) where.creator_id = String(creatorId);
+    if (ownerId && creatorId) {
+      where.OR = [
+        { current_owner_id: String(ownerId) },
+        { creator_id: String(creatorId) }
+      ];
+    }
+    else if (ownerId) where.current_owner_id = String(ownerId);
+    else if (creatorId) where.creator_id = String(creatorId);
     if (projectId) where.project_id = String(projectId);
 
     if (availableForEmployeeId) {
@@ -803,7 +861,6 @@ class TaskService {
         { description: { contains: search, mode: 'insensitive' } },
       ];
     }
-
     const tasks = await prisma.task.findMany({
       where,
       orderBy: { created_at: 'desc' },
@@ -811,7 +868,7 @@ class TaskService {
         eligibilities: true,
       }
     });
-
+    
     const employees = await prisma.employeeCache.findMany();
     const empMap = new Map();
     employees.forEach(e => {

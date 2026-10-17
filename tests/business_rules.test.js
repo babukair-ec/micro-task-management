@@ -18,14 +18,18 @@ describe('Employee-Centered Task Management Business Rules', () => {
 
     // Hook inter-service notifications directly during integration test
     problemService.notifyTaskServiceBlock = async (taskId) => {
+      const strId = String(taskId);
+      const isNum = !isNaN(strId) && !strId.includes('-');
       await db.prisma.task.update({
-        where: { id: String(taskId) },
+        where: isNum ? { id: parseInt(strId, 10) } : { outer_id: strId },
         data: { status: 'BLOCKED' },
       });
     };
     problemService.notifyTaskServiceUnblock = async (taskId) => {
+      const strId = String(taskId);
+      const isNum = !isNaN(strId) && !strId.includes('-');
       await db.prisma.task.update({
-        where: { id: String(taskId) },
+        where: isNum ? { id: parseInt(strId, 10) } : { outer_id: strId },
         data: { status: 'IN_PROGRESS' },
       });
     };
@@ -200,7 +204,7 @@ describe('Employee-Centered Task Management Business Rules', () => {
 
     // 2. Mohammed encounters a blocker and reports a problem
     const problem = await problemService.reportProblem(
-      task.id,
+      task.outer_id || task.id,
       MOHAMMED_ID,
       'Network timeout connecting to container registry'
     );
@@ -582,10 +586,11 @@ describe('Employee-Centered Task Management Business Rules', () => {
 
     // 28. Verify tracking
     assert.ok(updatedProblem.resolution_task_id);
-    assert.strictEqual(updatedProblem.resolution_task_id, resolutionTask.id);
+    const expectedResId = resolutionTask.outer_id || String(resolutionTask.id);
+    assert.strictEqual(updatedProblem.resolution_task_id, expectedResId);
 
-    const createdTask = await taskService.getTaskById(resolutionTask.id);
-    assert.strictEqual(createdTask.problem_id, projectProblem.id);
+    const createdTask = await taskService.getTaskById(resolutionTask.outer_id || resolutionTask.id);
+    assert.strictEqual(createdTask.problem_id, projectProblem.outer_id || String(projectProblem.id));
     assert.strictEqual(createdTask.project_id, TEST_PROJECT_ID);
   });
 });

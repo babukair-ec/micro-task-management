@@ -4,6 +4,7 @@ class TaskController {
   async listTasks(req, res) {
     try {
       const { status, owner_id, creator_id, available_for_me, project_id, testing_queue, search } = req.query;
+
       const tasks = await taskService.listTasks({
         status,
         ownerId: owner_id,
@@ -44,7 +45,11 @@ class TaskController {
         requested_employee_id,
         project_id,
         problem_id,
+        creator_employee_id,
+        creator_id,
       } = req.body;
+
+      const creatorId = creator_employee_id || creator_id || req.headers['x-employee-id'] || req.user.employeeId;
 
       const task = await taskService.createTask({
         title,
@@ -57,7 +62,8 @@ class TaskController {
         requestedEmployeeId: requested_employee_id,
         projectId: project_id,
         problemId: problem_id,
-      }, req.user.employeeId);
+        creatorEmployeeId: creatorId,
+      }, creatorId);
 
       res.status(201).json(task);
     } catch (err) {
