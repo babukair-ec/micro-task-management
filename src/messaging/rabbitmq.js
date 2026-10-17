@@ -33,7 +33,7 @@ async function startRabbitMQConsumer() {
           } else if (event === 'problem.reported') {
             // Task becomes BLOCKED
             await prisma.task.update({
-              where: { id: parseInt(data.task_id, 10) },
+              where: { id: String(data.task_id) },
               data: { status: 'BLOCKED' },
             });
             console.log(`[RabbitMQ] Task #${data.task_id} transitioned to BLOCKED due to problem report`);
@@ -41,7 +41,7 @@ async function startRabbitMQConsumer() {
             // Task returns to IN_PROGRESS without changing task owner
             await prisma.task.updateMany({
               where: {
-                id: parseInt(data.task_id, 10),
+                id: String(data.task_id),
                 status: 'BLOCKED',
               },
               data: { status: 'IN_PROGRESS' },
@@ -69,17 +69,20 @@ async function startRabbitMQConsumer() {
 }
 
 async function handleEmployeeSync(employeeData) {
-  if (!employeeData || !employeeData.id) return;
+  if (!employeeData) return;
+  const outerId = String(employeeData.outer_id || employeeData.id || '');
+  if (!outerId) return;
   try {
     await prisma.employeeCache.upsert({
-      where: { id: parseInt(employeeData.id, 10) },
+      where: { outer_id: outerId },
       create: {
-        id: parseInt(employeeData.id, 10),
+        outer_id: outerId,
         username: employeeData.username,
         full_name: employeeData.full_name || employeeData.username,
         email: employeeData.email || '',
         department: employeeData.department || '',
         job_title: employeeData.job_title || '',
+        employee_type: employeeData.employee_type || 'EMPLOYEE',
         is_active: employeeData.is_active !== false,
       },
       update: {
@@ -88,6 +91,7 @@ async function handleEmployeeSync(employeeData) {
         email: employeeData.email || '',
         department: employeeData.department || '',
         job_title: employeeData.job_title || '',
+        employee_type: employeeData.employee_type || 'EMPLOYEE',
         is_active: employeeData.is_active !== false,
       }
     });

@@ -8,30 +8,44 @@ generator client {
 }
 
 model Task {
-  id              Int                      @id @default(autoincrement())
-  title           String                   @db.VarChar(255)
-  description     String?                  @db.Text
-  creator_id      Int
-  current_owner_id Int?
-  status          String                   @default("DRAFT") @db.VarChar(50)
-  priority        String                   @default("MEDIUM") @db.VarChar(20)
-  assignment_mode String                   @default("SELF") @db.VarChar(20)
-  due_date        DateTime?                @db.Timestamptz
-  created_at      DateTime                 @default(now()) @db.Timestamptz
-  started_at      DateTime?                @db.Timestamptz
-  completed_at    DateTime?                @db.Timestamptz
+  id               Int                      @id @default(autoincrement())
+  outer_id         String                   @unique @default(uuid()) @db.Uuid
+  title            String                   @db.VarChar(255)
+  description      String?                  @db.Text
+  creator_id       String                   @db.Uuid
+  current_owner_id String?                  @db.Uuid
+  project_id       String?                  @db.Uuid
+  problem_id       String?                  @db.Uuid
+  status           String                   @default("DRAFT") @db.VarChar(50)
+  priority         String                   @default("MEDIUM") @db.VarChar(20)
+  assignment_mode  String                   @default("SELF") @db.VarChar(20)
+  due_date         DateTime?                @db.Timestamptz
+  created_at       DateTime                 @default(now()) @db.Timestamptz
+  started_at       DateTime?                @db.Timestamptz
+  completed_at     DateTime?                @db.Timestamptz
+  reviewer_id      String?                  @db.Uuid
+  reviewed_at      DateTime?                @db.Timestamptz
+  review_comment   String?                  @db.Text
 
-  eligibilities   TaskClaimEligibility[]
+  eligibilities        TaskClaimEligibility[]
   assignment_histories TaskAssignmentHistory[]
-  requests        TaskRequest[]
+  requests             TaskRequest[]
+  attachments          TaskAttachment[]
+  reviews              TaskReviewHistory[]
+  test_audits          TaskTestingAudit[]
 
+  @@index([project_id])
+  @@index([status])
+  @@index([current_owner_id])
+  @@index([creator_id])
   @@map("tasks")
 }
 
 model TaskClaimEligibility {
   id          Int      @id @default(autoincrement())
+  outer_id    String   @unique @default(uuid()) @db.Uuid
   task_id     Int
-  employee_id Int
+  employee_id String   @db.Uuid
   created_at  DateTime @default(now()) @db.Timestamptz
 
   task        Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
@@ -42,8 +56,9 @@ model TaskClaimEligibility {
 
 model TaskAssignmentHistory {
   id          Int       @id @default(autoincrement())
+  outer_id    String    @unique @default(uuid()) @db.Uuid
   task_id     Int
-  employee_id Int
+  employee_id String    @db.Uuid
   assigned_at DateTime  @default(now()) @db.Timestamptz
   ended_at    DateTime? @db.Timestamptz
   reason      String    @db.VarChar(100)
@@ -54,28 +69,76 @@ model TaskAssignmentHistory {
 }
 
 model TaskRequest {
-  id                   Int       @id @default(autoincrement())
-  task_id              Int
-  requester_id         Int
-  requested_employee_id Int
-  status               String    @default("PENDING") @db.VarChar(50)
-  created_at           DateTime  @default(now()) @db.Timestamptz
-  responded_at         DateTime? @db.Timestamptz
+  id                    Int       @id @default(autoincrement())
+  outer_id              String    @unique @default(uuid()) @db.Uuid
+  task_id               Int
+  requester_id          String    @db.Uuid
+  requested_employee_id String    @db.Uuid
+  status                String    @default("PENDING") @db.VarChar(50)
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  responded_at          DateTime? @db.Timestamptz
 
-  task                 Task      @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  task                  Task      @relation(fields: [task_id], references: [id], onDelete: Cascade)
 
   @@map("task_requests")
 }
 
+model TaskAttachment {
+  id              Int      @id @default(autoincrement())
+  outer_id        String   @unique @default(uuid()) @db.Uuid
+  task_id         Int
+  uploaded_by_id  String   @db.Uuid
+  file_name       String   @db.VarChar(255)
+  file_path       String   @db.VarChar(500)
+  file_size_bytes BigInt
+  mime_type       String   @db.VarChar(100)
+  created_at      DateTime @default(now()) @db.Timestamptz
+
+  task            Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@map("task_attachments")
+}
+
+model TaskReviewHistory {
+  id          Int      @id @default(autoincrement())
+  outer_id    String   @unique @default(uuid()) @db.Uuid
+  task_id     Int
+  reviewer_id String   @db.Uuid
+  decision    String   @db.VarChar(50)
+  comment     String?  @db.Text
+  created_at  DateTime @default(now()) @db.Timestamptz
+
+  task        Task     @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@map("task_review_histories")
+}
+
+model TaskTestingAudit {
+  id           Int       @id @default(autoincrement())
+  outer_id     String    @unique @default(uuid()) @db.Uuid
+  task_id      Int
+  tester_id    String    @db.Uuid
+  result       String    @db.VarChar(50)
+  notes        String?   @db.Text
+  started_at   DateTime  @default(now()) @db.Timestamptz
+  completed_at DateTime? @db.Timestamptz
+
+  task         Task      @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@map("task_testing_audits")
+}
+
 model EmployeeCache {
-  id         Int      @id
-  username   String   @db.VarChar(150)
-  full_name  String?  @db.VarChar(255)
-  email      String?  @db.VarChar(255)
-  department String?  @db.VarChar(100)
-  job_title  String?  @db.VarChar(100)
-  is_active  Boolean  @default(true)
-  updated_at DateTime @default(now()) @db.Timestamptz
+  id            Int      @id @default(autoincrement())
+  outer_id      String   @unique @db.Uuid
+  username      String   @db.VarChar(150)
+  full_name     String?  @db.VarChar(255)
+  email         String?  @db.VarChar(255)
+  department    String?  @db.VarChar(100)
+  job_title     String?  @db.VarChar(100)
+  employee_type String   @default("EMPLOYEE") @db.VarChar(50)
+  is_active     Boolean  @default(true)
+  updated_at    DateTime @default(now()) @db.Timestamptz
 
   @@map("employee_cache")
 }
