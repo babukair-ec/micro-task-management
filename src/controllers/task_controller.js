@@ -38,6 +38,7 @@ class TaskController {
         title,
         description,
         priority,
+        status,
         assignment_mode,
         due_date,
         direct_assignee_id,
@@ -55,6 +56,7 @@ class TaskController {
         title,
         description,
         priority,
+        status: status || 'DRAFT',
         assignmentMode: assignment_mode,
         dueDate: due_date,
         directAssigneeId: direct_assignee_id,
@@ -66,6 +68,24 @@ class TaskController {
       }, creatorId);
 
       res.status(201).json(task);
+    } catch (err) {
+      const status = err.status || 400;
+      res.status(status).json({ error: err.message });
+    }
+  }
+
+  async updateTask(req, res) {
+    try {
+      const { title, description, priority, status, due_date } = req.body;
+      const employeeId = req.headers['x-employee-id'] || req.user?.employeeId;
+      const task = await taskService.updateTask(req.params.id, employeeId, {
+        title,
+        description,
+        priority,
+        status,
+        dueDate: due_date,
+      });
+      res.json(task);
     } catch (err) {
       const status = err.status || 400;
       res.status(status).json({ error: err.message });
@@ -222,4 +242,5 @@ class TaskController {
   }
 }
 
+module.exports = new TaskController();
 module.exports = new TaskController();

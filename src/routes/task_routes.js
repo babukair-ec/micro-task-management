@@ -42,6 +42,8 @@ router.post('/', (req, res) => taskController.createTask(req, res));
 router.get('/testing-queue', (req, res) => taskController.listTestingQueue(req, res));
 
 router.get('/:id', (req, res) => taskController.getTask(req, res));
+router.patch('/:id', (req, res) => taskController.updateTask(req, res));
+router.put('/:id', (req, res) => taskController.updateTask(req, res));
 router.post('/:id/claim', (req, res) => taskController.claimTask(req, res));
 router.post('/:id/start', (req, res) => taskController.startTask(req, res));
 router.post('/:id/submit-for-review', (req, res) => taskController.submitForReview(req, res));

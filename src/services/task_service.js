@@ -57,6 +57,7 @@ class TaskService {
     description,
     priority = 'MEDIUM',
     assignmentMode = 'SELF',
+    status = null,
     dueDate = null,
     directAssigneeId = null,
     allowedClaimantIds = [],
@@ -142,28 +143,34 @@ class TaskService {
       verifiedProjectId = String(projectId);
     }
 
-    let initialStatus = 'DRAFT';
+    const validStatuses = ['DRAFT', 'AVAILABLE', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_REVIEW', 'TESTING', 'COMPLETED', 'BLOCKED', 'CANCELLED', 'CLOSED'];
+    const specifiedStatus = status && validStatuses.includes(String(status).toUpperCase()) ? String(status).toUpperCase() : null;
+
+    let initialStatus = specifiedStatus || 'DRAFT';
     let currentOwnerId = null;
 
     if (assignmentMode === 'SELF') {
-      initialStatus = 'ASSIGNED';
+      initialStatus = specifiedStatus || 'ASSIGNED';
       currentOwnerId = String(finalCreatorId);
     } else if (assignmentMode === 'DIRECT') {
       if (!directAssigneeId) {
         throw new Error('Direct assignment requires a specified assignee');
       }
-      initialStatus = 'ASSIGNED';
+      initialStatus = specifiedStatus || 'ASSIGNED';
       currentOwnerId = String(directAssigneeId);
     } else if (assignmentMode === 'CLAIM') {
-      initialStatus = 'AVAILABLE';
+      initialStatus = specifiedStatus || 'AVAILABLE';
       currentOwnerId = null;
     } else if (assignmentMode === 'REQUEST') {
       if (!requestedEmployeeId) {
         throw new Error('Task request requires a target employee');
       }
-      initialStatus = 'AVAILABLE';
+      initialStatus = specifiedStatus || 'AVAILABLE';
       currentOwnerId = null;
     }
+
+    const startedAt = initialStatus === 'IN_PROGRESS' || initialStatus === 'COMPLETED' ? new Date() : null;
+    const completedAt = initialStatus === 'COMPLETED' ? new Date() : null;
 
     return await prisma.$transaction(async (tx) => {
       // 1. Create Task
@@ -179,6 +186,8 @@ class TaskService {
           priority: priority,
           assignment_mode: assignmentMode,
           due_date: dueDate ? new Date(dueDate) : null,
+          started_at: startedAt,
+          completed_at: completedAt,
         }
       });
 
@@ -611,6 +620,90 @@ class TaskService {
   }
 
   /**
+   * Update task details and status
+   */
+  async updateTask(taskId, employeeId, { title, description, priority, status, dueDate } = {}) {
+    const task = await prisma.task.findFirst({ where: getTaskWhereClause(taskId) });
+    if (!task) {
+      const err = new Error('Task not found');
+      err.status = 404;
+      throw err;
+    }
+
+    let strEmpId = employeeId ? String(employeeId) : null;
+    if (strEmpId) {
+      const emp = await prisma.employeeCache.findFirst({
+        where: {
+          OR: [
+            { outer_id: strEmpId },
+            { username: strEmpId }
+          ]
+        }
+      });
+      if (emp) {
+        strEmpId = emp.outer_id;
+      }
+    }
+
+    if (strEmpId && task.creator_id && task.current_owner_id) {
+      const allowed =
+        task.creator_id === strEmpId ||
+        task.current_owner_id === strEmpId ||
+        task.creator_id === String(employeeId) ||
+        task.current_owner_id === String(employeeId);
+      if (!allowed) {
+        const err = new Error('Only the creator or current owner can update this task');
+        err.status = 403;
+        throw err;
+      }
+    }
+
+    const updateData = {};
+    if (title !== undefined && title.trim()) {
+      updateData.title = title.trim();
+    }
+    if (description !== undefined) {
+      updateData.description = description;
+    }
+    if (priority !== undefined) {
+      const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+      if (validPriorities.includes(priority)) {
+        updateData.priority = priority;
+      }
+    }
+    if (dueDate !== undefined) {
+      updateData.due_date = dueDate ? new Date(dueDate) : null;
+    }
+    if (status !== undefined) {
+      const validStatuses = ['DRAFT', 'AVAILABLE', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_REVIEW', 'TESTING', 'COMPLETED', 'BLOCKED', 'CANCELLED', 'CLOSED'];
+      const normalizedStatus = String(status).toUpperCase();
+      if (validStatuses.includes(normalizedStatus)) {
+        updateData.status = normalizedStatus;
+        if (normalizedStatus === 'IN_PROGRESS' && !task.started_at) {
+          updateData.started_at = new Date();
+        }
+        if (['COMPLETED', 'CLOSED'].includes(normalizedStatus) && !task.completed_at) {
+          updateData.completed_at = new Date();
+        }
+      }
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id: task.id },
+        data: updateData,
+      });
+
+      if (updateData.status && ['COMPLETED', 'CANCELLED', 'CLOSED'].includes(updateData.status)) {
+        await tx.taskAssignmentHistory.updateMany({
+          where: { task_id: task.id, ended_at: null },
+          data: { ended_at: new Date() }
+        });
+      }
+    }).then(() => this.getTaskById(task.id));
+  }
+
+  /**
    * Reassign task
    */
   async reassignTask(taskId, newOwnerId, reason, currentEmployeeId) {
@@ -656,6 +749,53 @@ class TaskService {
         }
       });
     }).then(() => this.getTaskById(task.id));
+  }
+
+  /**
+   * Update task details and status by owner or creator
+   */
+  async updateTask(taskId, employeeId, { title, description, priority, status, dueDate }) {
+    const strEmpId = String(employeeId);
+    const task = await prisma.task.findFirst({ where: getTaskWhereClause(taskId) });
+    if (!task) throw new Error('Task not found');
+
+    if (strEmpId && task.current_owner_id !== strEmpId && task.creator_id !== strEmpId) {
+      const err = new Error('You do not have permission to modify this task');
+      err.status = 403;
+      throw err;
+    }
+
+    const updateData = {};
+    if (title !== undefined && title.trim()) updateData.title = title.trim();
+    if (description !== undefined) updateData.description = description;
+    if (priority !== undefined) {
+      const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+      if (validPriorities.includes(String(priority).toUpperCase())) {
+        updateData.priority = String(priority).toUpperCase();
+      }
+    }
+    if (dueDate !== undefined) updateData.due_date = dueDate ? new Date(dueDate) : null;
+
+    if (status !== undefined) {
+      const upperStatus = String(status).toUpperCase();
+      const validStatuses = ['DRAFT', 'AVAILABLE', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_REVIEW', 'TESTING', 'COMPLETED', 'BLOCKED', 'CANCELLED', 'CLOSED'];
+      if (validStatuses.includes(upperStatus)) {
+        updateData.status = upperStatus;
+        if (upperStatus === 'IN_PROGRESS' && !task.started_at) {
+          updateData.started_at = new Date();
+        }
+        if (upperStatus === 'COMPLETED' && !task.completed_at) {
+          updateData.completed_at = new Date();
+        }
+      }
+    }
+
+    await prisma.task.update({
+      where: { id: task.id },
+      data: updateData,
+    });
+
+    return await this.getTaskById(task.id);
   }
 
   /**
@@ -868,7 +1008,7 @@ class TaskService {
         eligibilities: true,
       }
     });
-    
+
     const employees = await prisma.employeeCache.findMany();
     const empMap = new Map();
     employees.forEach(e => {

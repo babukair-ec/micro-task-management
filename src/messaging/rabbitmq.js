@@ -2,8 +2,8 @@ const amqp = require('amqplib');
 const prisma = require('../config/prisma');
 
 const RABBITMQ_URL = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672/';
-const EXCHANGE_NAME = 'task_management_events';
-const QUEUE_NAME = 'task_service_events_queue';
+const EXCHANGE_NAME = process.env.RABBITMQ_EXCHANGE || 'task_management_events';
+const QUEUE_NAME = 'aboody_task_service_events_queue';
 
 let channel = null;
 let connection = null;
@@ -16,7 +16,9 @@ async function startRabbitMQConsumer() {
     await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
     const q = await channel.assertQueue(QUEUE_NAME, { durable: true });
 
-    // Bind to employee and problem events
+    // Bind to employee and problem events (with aboody unique prefix)
+    await channel.bindQueue(q.queue, EXCHANGE_NAME, 'aboody.employee.*');
+    await channel.bindQueue(q.queue, EXCHANGE_NAME, 'aboody.problem.*');
     await channel.bindQueue(q.queue, EXCHANGE_NAME, 'employee.*');
     await channel.bindQueue(q.queue, EXCHANGE_NAME, 'problem.*');
 
@@ -28,16 +30,16 @@ async function startRabbitMQConsumer() {
           const content = JSON.parse(msg.content.toString());
           const { event, data } = content;
 
-          if (event === 'employee.created' || event === 'employee.updated') {
+          if (event === 'aboody.employee.created' || event === 'aboody.employee.updated' || event === 'employee.created' || event === 'employee.updated') {
             await handleEmployeeSync(data);
-          } else if (event === 'problem.reported') {
+          } else if (event === 'aboody.problem.reported' || event === 'problem.reported') {
             // Task becomes BLOCKED
             await prisma.task.update({
               where: { id: String(data.task_id) },
               data: { status: 'BLOCKED' },
             });
             console.log(`[RabbitMQ] Task #${data.task_id} transitioned to BLOCKED due to problem report`);
-          } else if (event === 'problem.resolved' || event === 'problem.cancelled') {
+          } else if (event === 'aboody.problem.resolved' || event === 'aboody.problem.cancelled' || event === 'problem.resolved' || event === 'problem.cancelled') {
             // Task returns to IN_PROGRESS without changing task owner
             await prisma.task.updateMany({
               where: {
