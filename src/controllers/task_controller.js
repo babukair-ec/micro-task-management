@@ -41,6 +41,7 @@ class TaskController {
         status,
         assignment_mode,
         due_date,
+        estimated_hours,
         direct_assignee_id,
         allowed_claimant_ids,
         requested_employee_id,
@@ -59,6 +60,7 @@ class TaskController {
         status: status || 'DRAFT',
         assignmentMode: assignment_mode,
         dueDate: due_date,
+        estimatedHours: estimated_hours !== undefined && estimated_hours !== null && estimated_hours !== '' ? parseInt(estimated_hours, 10) : null,
         directAssigneeId: direct_assignee_id,
         allowedClaimantIds: allowed_claimant_ids,
         requestedEmployeeId: requested_employee_id,
@@ -76,7 +78,7 @@ class TaskController {
 
   async updateTask(req, res) {
     try {
-      const { title, description, priority, status, due_date } = req.body;
+      const { title, description, priority, status, due_date, estimated_hours } = req.body;
       const employeeId = req.headers['x-employee-id'] || req.user?.employeeId;
       const task = await taskService.updateTask(req.params.id, employeeId, {
         title,
@@ -84,6 +86,7 @@ class TaskController {
         priority,
         status,
         dueDate: due_date,
+        estimatedHours: estimated_hours !== undefined && estimated_hours !== null && estimated_hours !== '' ? parseInt(estimated_hours, 10) : undefined,
       });
       res.json(task);
     } catch (err) {

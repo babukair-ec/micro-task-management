@@ -59,6 +59,7 @@ class TaskService {
     assignmentMode = 'SELF',
     status = null,
     dueDate = null,
+    estimatedHours = null,
     directAssigneeId = null,
     allowedClaimantIds = [],
     requestedEmployeeId = null,
@@ -185,7 +186,8 @@ class TaskService {
           status: initialStatus,
           priority: priority,
           assignment_mode: assignmentMode,
-          due_date: dueDate ? new Date(dueDate) : null,
+          due_date: dueDate ? new Date(dueDate) : (estimatedHours ? new Date(Date.now() + estimatedHours * 3600 * 1000) : null),
+          estimated_hours: estimatedHours ? parseInt(estimatedHours, 10) : null,
           started_at: startedAt,
           completed_at: completedAt,
         }
@@ -622,7 +624,7 @@ class TaskService {
   /**
    * Update task details and status
    */
-  async updateTask(taskId, employeeId, { title, description, priority, status, dueDate } = {}) {
+  async updateTask(taskId, employeeId, { title, description, priority, status, dueDate, estimatedHours } = {}) {
     const task = await prisma.task.findFirst({ where: getTaskWhereClause(taskId) });
     if (!task) {
       const err = new Error('Task not found');
@@ -673,6 +675,12 @@ class TaskService {
     }
     if (dueDate !== undefined) {
       updateData.due_date = dueDate ? new Date(dueDate) : null;
+    }
+    if (estimatedHours !== undefined) {
+      updateData.estimated_hours = estimatedHours ? parseInt(estimatedHours, 10) : null;
+      if (dueDate === undefined && estimatedHours) {
+        updateData.due_date = new Date(Date.now() + estimatedHours * 3600 * 1000);
+      }
     }
     if (status !== undefined) {
       const validStatuses = ['DRAFT', 'AVAILABLE', 'ASSIGNED', 'IN_PROGRESS', 'PENDING_REVIEW', 'TESTING', 'COMPLETED', 'BLOCKED', 'CANCELLED', 'CLOSED'];

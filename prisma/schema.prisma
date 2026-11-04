@@ -20,6 +20,7 @@ model Task {
   priority         String                   @default("MEDIUM") @db.VarChar(20)
   assignment_mode  String                   @default("SELF") @db.VarChar(20)
   due_date         DateTime?                @db.Timestamptz
+  estimated_hours  Int?
   created_at       DateTime                 @default(now()) @db.Timestamptz
   started_at       DateTime?                @db.Timestamptz
   completed_at     DateTime?                @db.Timestamptz
